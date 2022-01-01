@@ -151,24 +151,12 @@ impl<'a> CodeGenContext<'_> {
                     let head_content = self.builder.build_load(head_val, "").into_int_value();
                     let new_content = self.builder.build_int_add(head_content, byte_one, "");
                     self.builder.build_store(head_val, new_content);
-                    
-                    /*
-                    let old_val = self.builder.build_load(head_ptr, "").into_int_value();
-                    let new_val = self.builder.build_int_add(old_val, byte_one, "");
-                    self.builder.build_store(head_ptr, new_val);
-                    */
                 },
                 Instruction::Decrement => {
                     let head_val = self.get_head_ptr();
                     let head_content = self.builder.build_load(head_val, "").into_int_value();
                     let new_content = self.builder.build_int_add(head_content, self.builder.build_int_neg(byte_one, ""), "");
                     self.builder.build_store(head_val, new_content);
-
-                    /*
-                    let old_val = self.builder.build_load(head_ptr, "").into_int_value();
-                    let new_val = self.builder.build_int_add(old_val, self.builder.build_int_neg(byte_one, ""), "");
-                    self.builder.build_store(head_ptr, new_val);
-                    */
                 },
                 Instruction::Read => {
                     let char = self.builder.build_call(self.external_fns.getchar, &[], "").try_as_basic_value().expect_left("getchar call returned no value :(");
