@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use inkwell::{context::Context, AddressSpace, module::{Linkage, Module}, values::{BasicValueEnum, IntValue, FunctionValue, PointerValue}, builder::Builder, IntPredicate, types::{IntType, PointerType}};
+use inkwell::{context::Context, AddressSpace, module::Module, values::{FunctionValue, PointerValue}, builder::Builder, IntPredicate, types::{IntType, PointerType}};
 
 #[derive(Clone, Debug)]
 enum OpCode {
@@ -41,9 +41,8 @@ fn lex(source: String) -> Vec<OpCode> {
             _ => None
         };
 
-        match op {
-            Some(op) => operations.push(op),
-            None => ()
+        if let Some(op) = op {
+            operations.push(op)
         }
     }
 
@@ -72,9 +71,8 @@ fn parse(opcodes: Vec<OpCode>) -> Vec<Instruction> {
                 OpCode::LoopEnd => panic!("loop ending at #{} has no beginning!", i),
             };
             
-            match instr {
-                Some(instr) => program.push(instr),
-                None => (),
+            if let Some(instr) = instr {
+                program.push(instr)
             }
         } else {
             match op {
@@ -96,28 +94,6 @@ fn parse(opcodes: Vec<OpCode>) -> Vec<Instruction> {
     program
 }
 
-fn run(instructions: &Vec<Instruction>, tape: &mut Vec<u8>, data_pointer: &mut usize) {
-    for instr in instructions {
-        match instr {
-            Instruction::IncrementPointer => *data_pointer += 1,
-            Instruction::DecrementPointer => *data_pointer -= 1,
-            Instruction::Increment => tape[*data_pointer] += 1,
-            Instruction::Decrement => tape[*data_pointer] -= 1,
-            Instruction::Write => print!("{}", tape[*data_pointer] as char),
-            Instruction::Read => {
-                let mut input: [u8; 1] = [0; 1];
-                std::io::stdin().read_exact(&mut input).expect("failed to read stdin");
-                tape[*data_pointer] = input[0];
-            },
-            Instruction::Loop(nested_instructions) => {
-                while tape[*data_pointer] != 0 {
-                    run(&nested_instructions, tape, data_pointer)
-                }
-            }
-        }
-    }
-}
-
 struct ExternalFunctions<'a> {
     getchar: FunctionValue<'a>,
     putchar: FunctionValue<'a>,
@@ -125,9 +101,7 @@ struct ExternalFunctions<'a> {
 
 struct CommonTypes<'a> {
     i8: IntType<'a>,
-    i32: IntType<'a>,
     ptr: PointerType<'a>,
-    head_ptr: PointerType<'a>,
     ptr_int: IntType<'a>
 }
 
@@ -147,14 +121,12 @@ impl<'a> CodeGen<'_> {
         self.builder.build_pointer_cast(head_val, self.common_types.ptr, "")
     }
 
-    fn generate(&mut self, instructions: &Vec<Instruction>) {
+    fn generate(&mut self, instructions: &[Instruction]) {
         let context = self.context;
     
         // Initialize some values
         let i8_type = self.common_types.i8;
-        let i32_type = self.common_types.i32;
         let ptr_type = self.common_types.ptr;
-        let head_ptr_type = self.common_types.head_ptr;
         let ptr_int_type = self.common_types.ptr_int;
     
         let ptr_one = ptr_int_type.const_int(1, false);
@@ -234,7 +206,7 @@ impl<'a> CodeGen<'_> {
     }
 }
 
-fn generate_llvm(instructions: &Vec<Instruction>) {
+fn generate_llvm(instructions: &[Instruction]) {
     let context = Context::create();
     let module = context.create_module("rustfuck");
     
@@ -251,7 +223,6 @@ fn generate_llvm(instructions: &Vec<Instruction>) {
     let i8_type = context.i8_type();
     let i32_type = context.i32_type();
     let ptr_type = i8_type.ptr_type(AddressSpace::Generic);
-    let head_ptr_type = ptr_type.ptr_type(AddressSpace::Generic);
     let ptr_int_type = context.i64_type();
 
     // Initialize memset function
@@ -291,7 +262,7 @@ fn generate_llvm(instructions: &Vec<Instruction>) {
             getchar,
             putchar,
         },
-        common_types: CommonTypes { i8: i8_type, i32: i32_type, ptr: ptr_type, head_ptr: head_ptr_type, ptr_int: ptr_int_type }
+        common_types: CommonTypes { i8: i8_type, ptr: ptr_type, ptr_int: ptr_int_type }
     };
 
     codegen.generate(instructions);
@@ -314,12 +285,6 @@ fn main() {
 
     let opcodes = lex(source);
     let program = parse(opcodes);
-
-    /*
-    let mut tape: Vec<u8> = vec![0; 1024];
-    let mut data_pointer = 512;
-    run(&program, &mut tape, &mut data_pointer);
-    */
 
     generate_llvm(&program);
 }
