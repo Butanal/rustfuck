@@ -105,7 +105,7 @@ struct CommonTypes<'a> {
     ptr_int: IntType<'a>
 }
 
-struct CodeGen<'a> {
+struct CodeGenContext<'a> {
     builder: Builder<'a>,
     context: &'a Context,
     main: FunctionValue<'a>,
@@ -115,7 +115,7 @@ struct CodeGen<'a> {
     common_types: CommonTypes<'a>
 }
 
-impl<'a> CodeGen<'_> {
+impl<'a> CodeGenContext<'_> {
     fn get_head_ptr(&self) -> PointerValue {
         let head_val = self.builder.build_load(self.tape_head, "").into_pointer_value();
         self.builder.build_pointer_cast(head_val, self.common_types.ptr, "")
@@ -252,7 +252,7 @@ fn generate_llvm(instructions: &[Instruction]) {
 
     // let tape_head = builder.build_ptr_to_int(tape, ptr_type, "");
 
-    let mut codegen = CodeGen{
+    let mut codegen = CodeGenContext{
         builder,
         context: &context,
         main,
