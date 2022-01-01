@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use inkwell::{context::Context, AddressSpace, module::{Linkage, Module}, values::{BasicValueEnum, IntValue, FunctionValue}, builder::Builder, IntPredicate};
+use inkwell::{context::Context, AddressSpace, module::{Linkage, Module}, values::{BasicValueEnum, IntValue, FunctionValue, PointerValue}, builder::Builder, IntPredicate, types::{IntType, PointerType}};
 
 #[derive(Clone, Debug)]
 enum OpCode {
@@ -123,66 +123,106 @@ struct ExternalFunctions<'a> {
     putchar: FunctionValue<'a>,
 }
 
+struct CommonTypes<'a> {
+    i8: IntType<'a>,
+    i32: IntType<'a>,
+    ptr: PointerType<'a>,
+    head_ptr: PointerType<'a>,
+    ptr_int: IntType<'a>
+}
+
 struct CodeGen<'a> {
     builder: Builder<'a>,
     context: &'a Context,
     main: FunctionValue<'a>,
     module: Module<'a>,
-    tape_head: IntValue<'a>,
-    external_fns: ExternalFunctions<'a>
+    tape_head: PointerValue<'a>,
+    external_fns: ExternalFunctions<'a>,
+    common_types: CommonTypes<'a>
 }
 
 impl<'a> CodeGen<'_> {
+    fn get_head_ptr(&self) -> PointerValue {
+        let head_val = self.builder.build_load(self.tape_head, "").into_pointer_value();
+        self.builder.build_pointer_cast(head_val, self.common_types.ptr, "")
+    }
+
     fn generate(&mut self, instructions: &Vec<Instruction>) {
         let context = self.context;
     
         // Initialize some values
-        let i8_type = context.i8_type();
-        let i32_type = context.i32_type();
-        let ptr_type = context.i64_type();
+        let i8_type = self.common_types.i8;
+        let i32_type = self.common_types.i32;
+        let ptr_type = self.common_types.ptr;
+        let head_ptr_type = self.common_types.head_ptr;
+        let ptr_int_type = self.common_types.ptr_int;
     
-        let ptr_one = ptr_type.const_int(1, false);
+        let ptr_one = ptr_int_type.const_int(1, false);
         let byte_one = i8_type.const_int(1, false);
     
         for instr in instructions {
-            let head_ptr = self.builder.build_int_to_ptr(self.tape_head, i8_type.ptr_type(AddressSpace::Generic), "");
             match instr {
                 Instruction::IncrementPointer => {
-                    self.tape_head = self.builder.build_int_add(self.tape_head, ptr_one, "");
+                    let head_val = self.builder.build_ptr_to_int(self.get_head_ptr(), ptr_int_type, "");
+                    let new_head = self.builder.build_int_to_ptr(self.builder.build_int_add(head_val, ptr_one, ""), ptr_type, "");
+                    self.builder.build_store(self.tape_head, new_head);
+                    // self.tape_head = self.builder.build_int_add(self.tape_head, ptr_one, "");
                 },
                 Instruction::DecrementPointer => {
-                    self.tape_head = self.builder.build_int_add(self.tape_head, self.builder.build_int_neg(ptr_one, ""), "");
+                    let head_val = self.builder.build_ptr_to_int(self.get_head_ptr(), ptr_int_type, "");
+                    let new_head = self.builder.build_int_to_ptr(self.builder.build_int_add(head_val, self.builder.build_int_neg(ptr_one, ""), ""), ptr_type, "");
+                    self.builder.build_store(self.tape_head, new_head);
+                    // self.tape_head = self.builder.build_int_add(self.tape_head, self.builder.build_int_neg(ptr_one, ""), "");
                 },
                 Instruction::Increment => {
+                    let head_val = self.get_head_ptr();
+                    let head_content = self.builder.build_load(head_val, "").into_int_value();
+                    let new_content = self.builder.build_int_add(head_content, byte_one, "");
+                    self.builder.build_store(head_val, new_content);
+                    
+                    /*
                     let old_val = self.builder.build_load(head_ptr, "").into_int_value();
                     let new_val = self.builder.build_int_add(old_val, byte_one, "");
                     self.builder.build_store(head_ptr, new_val);
+                    */
                 },
                 Instruction::Decrement => {
+                    let head_val = self.get_head_ptr();
+                    let head_content = self.builder.build_load(head_val, "").into_int_value();
+                    let new_content = self.builder.build_int_add(head_content, self.builder.build_int_neg(byte_one, ""), "");
+                    self.builder.build_store(head_val, new_content);
+
+                    /*
                     let old_val = self.builder.build_load(head_ptr, "").into_int_value();
                     let new_val = self.builder.build_int_add(old_val, self.builder.build_int_neg(byte_one, ""), "");
                     self.builder.build_store(head_ptr, new_val);
+                    */
                 },
                 Instruction::Read => {
                     let char = self.builder.build_call(self.external_fns.getchar, &[], "").try_as_basic_value().expect_left("getchar call returned no value :(");
-                    self.builder.build_store(head_ptr, char);
+                    
+                    let head_val = self.get_head_ptr();
+                    self.builder.build_store(head_val, char);
                 },
                 Instruction::Write => {
-                    let char = self.builder.build_load(head_ptr, "").into_int_value();
+                    let head_val = self.get_head_ptr();
+                    let char = self.builder.build_load(head_val, "").into_int_value();
                     let args = [char.into()];
                     self.builder.build_call(self.external_fns.putchar, &args, "");
                 },
                 Instruction::Loop(nested_instructions) => {
-                    let value = self.builder.build_load(head_ptr, "").into_int_value();
-                    let should_execute = self.builder.build_int_compare(IntPredicate::NE, value, i8_type.const_zero(), "");
-
                     let loop_cond = context.append_basic_block(self.main, "loopcond");
                     let loop_body = context.append_basic_block(self.main, "loop");
                     let after_loop = context.append_basic_block(self.main, "endloop");
 
                     self.builder.build_unconditional_branch(loop_cond);
-
                     self.builder.position_at_end(loop_cond);
+
+                    let head_val = self.get_head_ptr();
+                    
+                    let head_content = self.builder.build_load(head_val, "").into_int_value();
+                    let should_execute = self.builder.build_int_compare(IntPredicate::NE, head_content, i8_type.const_zero(), "");
+
                     self.builder.build_conditional_branch(should_execute, loop_body, after_loop);
                     self.builder.position_at_end(loop_body);
                     self.generate(nested_instructions);
@@ -210,11 +250,13 @@ fn generate_llvm(instructions: &Vec<Instruction>) {
     // Initialize types
     let i8_type = context.i8_type();
     let i32_type = context.i32_type();
-    let ptr_type = context.i64_type();
+    let ptr_type = i8_type.ptr_type(AddressSpace::Generic);
+    let head_ptr_type = ptr_type.ptr_type(AddressSpace::Generic);
+    let ptr_int_type = context.i64_type();
 
     // Initialize memset function
-    let param_types = [i8_type.ptr_type(AddressSpace::Generic).into(), i32_type.into(), ptr_type.into()];
-    let memset_type = i8_type.ptr_type(AddressSpace::Generic).fn_type(&param_types, false);
+    let param_types = [ptr_type.into(), i32_type.into(), ptr_int_type.into()];
+    let memset_type = ptr_type.fn_type(&param_types, false);
     let memset = module.add_function("memset", memset_type, None);
 
     // Initialize putchar function
@@ -227,14 +269,17 @@ fn generate_llvm(instructions: &Vec<Instruction>) {
     let getchar = module.add_function("getchar", getchar_type, None);
 
     // Initialize the tape
-    let tape_size = ptr_type.const_int(1024, false);
+    let tape_size = ptr_int_type.const_int(1024, false);
     let tape = builder.build_array_alloca(i8_type, tape_size, "tape");
+    // Initialize the variable for the tape head
+    let tape_head = builder.build_alloca(ptr_type, "");
+    builder.build_store(tape_head, tape);
     // Zero out the tape
     let zero = i32_type.const_zero();
     let args = [tape.into(), zero.into(), tape_size.into()];
     builder.build_call(memset, &args, "");
 
-    let tape_head = builder.build_ptr_to_int(tape, ptr_type, "");
+    // let tape_head = builder.build_ptr_to_int(tape, ptr_type, "");
 
     let mut codegen = CodeGen{
         builder,
@@ -245,7 +290,8 @@ fn generate_llvm(instructions: &Vec<Instruction>) {
         external_fns: ExternalFunctions{
             getchar,
             putchar,
-        }
+        },
+        common_types: CommonTypes { i8: i8_type, i32: i32_type, ptr: ptr_type, head_ptr: head_ptr_type, ptr_int: ptr_int_type }
     };
 
     codegen.generate(instructions);
