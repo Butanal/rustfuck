@@ -138,13 +138,11 @@ impl<'a> CodeGenContext<'_> {
                     let head_val = self.builder.build_ptr_to_int(self.get_head_ptr(), ptr_int_type, "");
                     let new_head = self.builder.build_int_to_ptr(self.builder.build_int_add(head_val, ptr_one, ""), ptr_type, "");
                     self.builder.build_store(self.tape_head, new_head);
-                    // self.tape_head = self.builder.build_int_add(self.tape_head, ptr_one, "");
                 },
                 Instruction::DecrementPointer => {
                     let head_val = self.builder.build_ptr_to_int(self.get_head_ptr(), ptr_int_type, "");
                     let new_head = self.builder.build_int_to_ptr(self.builder.build_int_add(head_val, self.builder.build_int_neg(ptr_one, ""), ""), ptr_type, "");
                     self.builder.build_store(self.tape_head, new_head);
-                    // self.tape_head = self.builder.build_int_add(self.tape_head, self.builder.build_int_neg(ptr_one, ""), "");
                 },
                 Instruction::Increment => {
                     let head_val = self.get_head_ptr();
@@ -237,8 +235,6 @@ fn generate_llvm(instructions: &[Instruction]) {
     let zero = i32_type.const_zero();
     let args = [tape.into(), zero.into(), tape_size.into()];
     builder.build_call(memset, &args, "");
-
-    // let tape_head = builder.build_ptr_to_int(tape, ptr_type, "");
 
     let mut codegen = CodeGenContext{
         builder,
