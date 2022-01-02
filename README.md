@@ -14,7 +14,7 @@ The compiler fully works, but is not very polished. It depends on `libc` functio
 Clone the project and compile it:
 
 ```bash
-$ cargo release --build
+$ cargo build --release
 ```
 
 Now compile your Brainfuck program:
